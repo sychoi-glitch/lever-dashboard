@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
+<!-- 검색엔진 색인/수집 차단 · 내부 공유 전용 (구글 등에 노출 방지) -->
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet" />
+<meta name="referrer" content="no-referrer" />
 <title>LEVER Xpert · Cold Email Analytics</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -4146,22 +4149,14 @@ function fmtDateShort(d){
 }
 
 function renderTopTypes(rows){
-  /* 유형별 1차 발송 집계 */
-  const map = new Map();   /* type → {sent,opened,clicked,replied} */
-  for(const r of rows){
-    if(!isSent(r)) continue;
-    const type = codeToType(r.sendType) || '(미분류)';
-    if(!map.has(type)) map.set(type, {sent:0,opened:0,clicked:0,replied:0});
-    const o = map.get(type); o.sent++;
-    if(STATUS_OPENED.has(r.status)) o.opened++;
-    if(STATUS_CLICKED.has(r.status)) o.clicked++;
-    if(hasReplied(r)) o.replied++;
-  }
+  /* 유형 분석 페이지와 '동일한' 집계 사용 (전 단계 통합 + 단계별 날짜필터 + 회신 정확 귀속).
+     → Top 5에 뜨는 유형은 반드시 유형 분석에도 존재하므로 클릭 시 항상 이동/펼침됨 */
+  const byType = aggregateAllStagesByType(rows);
   const sortMode = topTypesSort || 'open';
   const metricKey = sortMode === 'click' ? 'clicked' : (sortMode === 'reply' ? 'replied' : 'opened');
   /* 표본 부족 유형 필터: 최소 3건 이상 발송된 유형만 (0/1건은 100% 왜곡 방지) */
   const MIN_SENT = 3;
-  const entries = [...map.entries()]
+  const entries = [...byType.entries()]
     .filter(([_, s]) => s.sent >= MIN_SENT)
     .sort((a,b)=> pct(b[1][metricKey], b[1].sent) - pct(a[1][metricKey], a[1].sent))
     .slice(0,5);
