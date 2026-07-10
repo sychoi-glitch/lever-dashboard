@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" data-theme="dark">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -4502,13 +4502,13 @@ function wireUp(){
    ===================================================================== */
 function applyTheme(t){
   document.documentElement.dataset.theme = t;
-  try{ localStorage.setItem('cep-v2-theme', t); }catch(e){}
+  try{ localStorage.setItem('cep-v3-theme', t); }catch(e){}
   if(state.rawAdv.length || state.rawAgy.length) render();
 }
 function initTheme(){
-  let saved=null; try{ saved = localStorage.getItem('cep-v2-theme'); }catch(e){}
-  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  applyTheme(saved || (prefersDark ? 'dark' : 'light'));
+  /* 기본 다크 모드. 사용자가 토글로 라이트로 바꾼 적 있으면 그 선택(저장값) 유지 */
+  let saved=null; try{ saved = localStorage.getItem('cep-v3-theme'); }catch(e){}
+  applyTheme(saved === 'light' ? 'light' : 'dark');
   document.getElementById('themeBtn').onclick = ()=>{
     applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
   };
