@@ -2232,6 +2232,16 @@ function buildColMap(table){
   }
   /* stages를 단계 번호 오름차순 배열로 정리 */
   map.stages = Object.keys(stageMap).map(Number).sort((a,b)=>a-b).map(n=>stageMap[n]);
+  /* 컬럼 매핑 누락 감지 — 시트 헤더가 비거나 오타나면 해당 지표가 조용히 사라지므로 경고용으로 수집.
+     (예: '1차 발송 상태' 헤더가 지워지면 gviz가 '19열' 등으로 반환 → 매핑 실패 → 오픈률 전부 0) */
+  map.colWarnings = [];
+  for(const s of map.stages){
+    const missing = [];
+    if(s.contactDateIdx == null) missing.push(`${s.stageNum}차 컨택 일자`);
+    if(s.sendTypeIdx == null)    missing.push(`${s.stageNum}차 발송 여부`);
+    if(s.statusIdx == null)      missing.push(`${s.stageNum}차 발송 상태`);
+    if(missing.length) map.colWarnings.push(...missing);
+  }
   return map;
 }
 const TYPE_COLS = { target:0, code:1, type:2, subject:3, hint:4 };
@@ -2396,19 +2406,15 @@ function normalizeTypeMap(table){
 /* =====================================================================
    DOMAIN HELPERS
    ===================================================================== */
-/* N차 발송 단계 카운트 기준:
-     1차 (stageIdx === 0): 컨택일 + 발송여부 + 발송상태 모두 채워진 경우
-     2차+ 팔로업: 컨택일 + 발송여부 만 채워지면 인정 (상태는 nullable)
-   이유: 2차 이상은 발송 직후 상태 추적이 늦을 수 있고, 사용자가 status 미입력 상태에서도 발송으로 인식하길 원함. */
+/* N차 발송 단계 카운트 기준 (모든 단계 동일):
+     컨택일 + 발송여부(유형코드) 가 채워지면 '발송'으로 인정. 상태는 nullable.
+   이유: 발송 직후 상태(오픈/클릭) 추적이 늦을 수 있고, 시트의 '발송 상태' 헤더가 비거나
+         바뀌면 매핑이 끊겨 발송 자체가 통째로 누락되는 사고가 발생함.
+         상태는 발송 인정 조건이 아니라 오픈률·클릭률 계산에만 사용한다. */
 function isStageSent(r, stageIdx){
   if(!r || !r.stages || !r.stages[stageIdx]) return false;
   const s = r.stages[stageIdx];
-  const baseOk = !!s.contactDate && !!(s.sendType && String(s.sendType).trim());
-  if(!baseOk) return false;
-  if(stageIdx === 0){
-    return !!(s.status && String(s.status).trim());
-  }
-  return true;
+  return !!s.contactDate && !!(s.sendType && String(s.sendType).trim());
 }
 function isSent(r){ return isStageSent(r, 0); }
 function isFollowup(r){ return isStageSent(r, 1); }   /* 2차 = follow-up */
@@ -4615,6 +4621,15 @@ async function load(){
       state._presetApplied = true;
     }
     console.log(`[Load] 광고주 ${advMap.stages.length}단계, 대행사 ${agyMap.stages.length}단계, 최대 ${state.maxStages}차 감지`);
+    /* 시트 헤더(컬럼) 매핑 누락 감지 — 헤더가 비거나 오타나면 해당 지표가 조용히 사라지므로 강하게 경고 */
+    const colIssues = [
+      ...(advMap.colWarnings || []).map(c => `광고주 시트: "${c}"`),
+      ...(agyMap.colWarnings || []).map(c => `대행사 시트: "${c}"`)
+    ];
+    if(colIssues.length){
+      console.warn('[시트 헤더 누락] 아래 컬럼을 찾지 못했습니다. 시트 1행(헤더)의 이름이 비었거나 바뀐 것 같습니다 — 해당 지표가 집계되지 않습니다:');
+      colIssues.forEach(c => console.warn('  · ' + c));
+    }
     /* 매핑 누락 코드 감지: 광고주/대행사 시트에 사용된 코드 중 메시지 유형 시트에 없는 것을 경고 */
     const unmappedCodes = new Map();   /* code → 사용된 회사 1건 sample */
     for(const r of [...state.rawAdv, ...state.rawAgy]){
@@ -4641,8 +4656,12 @@ async function load(){
     const unmappedTag = unmappedCodes.size > 0
       ? ` · <span class="sb-status-warn">⚠ 미매핑 ${unmappedCodes.size}개</span>`
       : '';
+    /* 시트 헤더 누락은 지표가 통째로 사라지는 심각한 문제이므로 별도 줄로 강조 */
+    const colTag = colIssues.length
+      ? `<br/><span class="sb-status-warn" title="${escapeHtml(colIssues.join(' / '))}">⚠ 시트 헤더 누락 ${colIssues.length}개 (콘솔 확인)</span>`
+      : '';
     const rowCount = comma(state.rawAdv.length + state.rawAgy.length);
-    txt.innerHTML = `연동 정상 · ${rowCount}행<br/>최대 ${state.maxStages}차 · 유형 ${state.typeMap.size}개${unmappedTag}`;
+    txt.innerHTML = `연동 정상 · ${rowCount}행<br/>최대 ${state.maxStages}차 · 유형 ${state.typeMap.size}개${unmappedTag}${colTag}`;
     /* 갱신 시각은 statusFresh에 별도로 즉시 갱신 */
     const fresh = document.getElementById('statusFresh');
     if(fresh) fresh.textContent = `갱신 ${fmtRelativeTime(state.lastFetchAt)}`;
